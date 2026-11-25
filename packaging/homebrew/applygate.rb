@@ -15,29 +15,27 @@ class Applygate < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/Flurit/applygate/releases/download/v0.6.2/applygate_0.6.2_darwin_arm64.tar.gz"
-      sha256 "68fcd58e35706419e99845c1910a1dda658b18bb1111783c3cd616b8f52f2516"
+      url "https://github.com/Flurit/applygate/releases/download/v0.7.0/applygate_0.7.0_darwin_arm64.tar.gz"
+      sha256 "74239fd8f24ce4f67acdf6de23fa4329ac2829653289c74ee935635546377422"
     end
     on_intel do
-      url "https://github.com/Flurit/applygate/releases/download/v0.6.2/applygate_0.6.2_darwin_amd64.tar.gz"
-      sha256 "ed1ca5e4f002fd293b8f97577a738e48150308a6c3ddd03a1d7650fbfcdadf18"
+      url "https://github.com/Flurit/applygate/releases/download/v0.7.0/applygate_0.7.0_darwin_amd64.tar.gz"
+      sha256 "8a9d3d2ffbc06dbf825a6bfb30bdac24be453eb8e93ff6df552a2be6d65fa049"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/Flurit/applygate/releases/download/v0.6.2/applygate_0.6.2_linux_arm64.tar.gz"
-      sha256 "7aef8aa45b306afda92c273b4f8ced01d05dcd0a63cb310bbf202e83e1733db3"
+      url "https://github.com/Flurit/applygate/releases/download/v0.7.0/applygate_0.7.0_linux_arm64.tar.gz"
+      sha256 "abac90da7a9d17a5d3bab09b0fee1d51527ea3977b34372cdc8c87dfdabca2e5"
     end
     on_intel do
-      url "https://github.com/Flurit/applygate/releases/download/v0.6.2/applygate_0.6.2_linux_amd64.tar.gz"
-      sha256 "3462896130434e7c40ece7b97888c77ca351bfb2b95bad4aeb8805d1c82e2f5f"
+      url "https://github.com/Flurit/applygate/releases/download/v0.7.0/applygate_0.7.0_linux_amd64.tar.gz"
+      sha256 "055c2581e0978ea42a6817d8374a1f7032409d99a43553b55c69b5db29c0ecc8"
     end
   end
 
   def install
-    # The archive also carries a `seatbelt` compatibility shim for the old
-    # name; new installs get only `applygate`.
     bin.install "applygate"
   end
 

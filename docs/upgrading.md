@@ -2,6 +2,21 @@
 
 What to do when you upgrade from an earlier release. Every change is in [CHANGELOG.md](../CHANGELOG.md).
 
+## To v0.7.0
+
+One verdict changes. Nothing needs doing unless you relied on the prompt it removes. Hooks, configs and trust carry over as they are, and the plugin exception under v0.6.1 below holds here too.
+
+- **In a standard tier, a saved plan whose only deletes and replaces are routine replaces is allowed.** It was asked about before. A replace is routine for a short list of types that hold no data, such as a launch template, a task definition or a policy attachment; [policy.md](policy.md) (step 6) has the list and the conditions. A protected tier blocks every replace as before, and a delete, a stateful replace and a replace of any other type still ask.
+- **To keep the prompt for some resources,** list their addresses under `protected_resources`: `["aws_launch_template.*"]` for the root module, `["*aws_launch_template.*"]` to reach inside modules ([config.md](config.md)).
+- **In CI,** `applygate plan-check` exits 0 for such a plan in a standard tier, where it exited 4. A job with `fail-on: ask` that judges a standard tier passes where it failed. A runner without `--trust-config` (the Action's `trust-config`) judges every directory as protected and is not affected.
+- **The pull-request comment** lists routine replaces under what was found, and no longer gives "any destroy or replace" as the reason for an ask that something else caused.
+
+## To v0.6.3
+
+Nothing to do when you come from v0.6.0, v0.6.1 or v0.6.2. v0.6.3 reorganises the documentation and tidies the code; it changes no rule, verdict or default, and hooks, configs and trust carry over as they are. The plugin exception under v0.6.1 below holds here too.
+
+- **Links into the docs may need updating.** `docs/migration.md` is now the last section of this page, the corpus trial is `review/oss-corpus/trial.md`, and the records that were under `docs/project/` are in `review/`. [limits.md](limits.md) has new headings, by topic.
+
 ## To v0.6.2
 
 Nothing to do when you come from v0.6.0 or v0.6.1. v0.6.2 adds the Action's pull-request comment ([ci.md](ci.md#a-comment-on-the-pull-request)) and changes no rule, verdict or default; hooks, configs and trust carry over as they are. The plugin exception under v0.6.1 below holds here too.
@@ -52,4 +67,11 @@ From v0.3 or earlier, also:
 
 ## From seatbelt
 
-seatbelt is the project's old name: see [migration.md](migration.md).
+This project was called seatbelt until 2026-10-29. The word already names Apple's macOS sandbox in the Claude Code and Codex documentation, and other agent-guardrail products use it, so the name was confusing for exactly the people this tool is for. v0.2.0 was the first release as applygate. For an existing install:
+
+- the repository config is `.applygate.yaml` (a `.seatbelt.yaml` is still read, with a note from `doctor`; rename it);
+- hook entries become `applygate hook claude` / `applygate hook codex` (`applygate hook install` rewrites them; the `seatbelt` compatibility binary shipped with v0.2 to v0.5 and is gone in v0.6.0, so run `applygate hook install` before upgrading; `applygate doctor` flags a hook entry that still calls it);
+- the user config and the decision log move to `~/.config/applygate/` and `~/.local/state/applygate/` (existing files at the old paths are used until a new one exists);
+- installer variables are `APPLYGATE_VERSION`, `APPLYGATE_INSTALL_DIR` and `APPLYGATE_VERIFY_SIGNATURE` (the `SEATBELT_*` names were honoured until v0.5; v0.6.0 reads only the `APPLYGATE_*` names).
+
+Release tags v0.1.0 to v0.1.4 and the records under `review/` keep the old name where they describe those builds.

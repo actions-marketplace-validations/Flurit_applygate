@@ -40,7 +40,6 @@ type prog struct {
 	family  string                            // programs whose entries share options: the conformance test runs a shared option once per family
 	with    []string                          // words the conformance test adds so that one option can be run alone (a message for commit)
 	outputs []string                          // options whose value is a file the program writes, listed or not: the classifier names the path (OutputOpts)
-	wr      func(c parsed) []written          // what a plain call writes, from the matcher's own reading (writes.go)
 }
 
 // allowProgs are the programs described by a prog, by name (the conformance
@@ -93,7 +92,7 @@ func (p *prog) check(name string, args []Word) string {
 }
 
 // parsed is a plain call as the matcher read it: its operands and the
-// values of its options. The write rules (writes.go) read it, so a path the
+// values of its options. The write rules (writerules.go) read it, so a path the
 // classifier judges as written is the one the matcher took for that
 // operand or option, not one a second parser found.
 type parsed struct {

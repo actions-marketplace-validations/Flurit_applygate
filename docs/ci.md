@@ -19,7 +19,10 @@ and later refuse that mismatch themselves) and local state freshness, which
 are preflight checks in the hook path. Rules and tiers come from the
 repository's `.applygate.yaml` as everywhere else, and the tier from the same
 signals the hook reads: the path, the selected workspace and the backend. A
-replace is judged like a destroy, as in the hook. A runner has no trust store,
+replace is judged like a destroy, as in the hook, unless every replace in
+the plan is a routine one ([policy.md](policy.md), step 6): such a plan exits 0
+in a standard tier, where it exited 4 before, and still exits 3 in a protected
+one. A runner has no trust store,
 so the repository config is not read and every directory is judged protected,
 and `plan-check` says so; pass `--trust-config` (the Action's `trust-config:
 true`) to read the checked-out config. On pull requests from forks that config
@@ -41,7 +44,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
       - run: terraform init -input=false && terraform plan -input=false -out=tfplan
         working-directory: envs/prod
-      - uses: Flurit/applygate@v0.6.2
+      - uses: Flurit/applygate@v0.7.0
         id: gate
         with:
           plan: tfplan
@@ -63,7 +66,7 @@ error, missing binary) always fails the job: the gate fails closed.
 
 Inputs: `plan` (required), `tier`, `fail-on`, `working-directory`, `comment` and `comment-key` ([below](#a-comment-on-the-pull-request)),
 `terraform` (`tofu` for OpenTofu), `trust-config` (read the repository's
-`.applygate.yaml`, default false), `version` (a release tag such as v0.6.2;
+`.applygate.yaml`, default false), `version` (a release tag such as v0.7.0;
 anything else is an error), and `binary` to skip the download and
 use a binary already on the runner. The release is installed with the
 `install.sh` that comes with the action, at the ref your workflow pins, and its
@@ -120,7 +123,7 @@ jobs:
       # checkout, setup-terraform and terraform plan as above
       # comment needs v0.6.2 or later: the action at an earlier tag has no
       # such input and would run the check without commenting.
-      - uses: Flurit/applygate@v0.6.2
+      - uses: Flurit/applygate@v0.7.0
         with:
           plan: tfplan
           working-directory: envs/prod

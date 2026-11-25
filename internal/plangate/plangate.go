@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,11 +23,18 @@ var awsRules []byte
 
 // Rules are the data-driven resource lists.
 type Rules struct {
-	StatefulTypes []string     `json:"stateful_types"`
-	Protection    []Protection `json:"protection"`
-	AdminPorts    []int        `json:"admin_ports"`
-	AdminPolicies []string     `json:"admin_policies"`
-	stateful      map[string]bool
+	StatefulTypes []string `json:"stateful_types"`
+	// RoutineReplaceTypes are the types that hold no data and that a
+	// provider replaces on routine change (a launch configuration, a task
+	// definition, a policy attachment). Replacing one loses nothing and
+	// leaves at most a brief gap. A type that is not listed is not routine:
+	// the list says what is known, and an unknown type keeps the ask.
+	RoutineReplaceTypes []string     `json:"routine_replace_types"`
+	Protection          []Protection `json:"protection"`
+	AdminPorts          []int        `json:"admin_ports"`
+	AdminPolicies       []string     `json:"admin_policies"`
+	stateful            map[string]bool
+	routine             map[string]bool
 }
 
 // Protection is an attribute whose value disables a safeguard.
@@ -42,8 +50,8 @@ type Protection struct {
 }
 
 // dbWithFinalSnapshot is the set of resource types that have both
-// deletion_protection and skip_final_snapshot, so the narrowed F11 create rule
-// (both safeguards off at once) applies to them.
+// deletion_protection and skip_final_snapshot, so the create rule (both
+// safeguards off at once) applies to them.
 var dbWithFinalSnapshot = map[string]bool{
 	"aws_db_instance":     true,
 	"aws_rds_cluster":     true,
@@ -70,6 +78,10 @@ func DefaultRules() *Rules {
 	for _, t := range r.StatefulTypes {
 		r.stateful[t] = true
 	}
+	r.routine = map[string]bool{}
+	for _, t := range r.RoutineReplaceTypes {
+		r.routine[t] = true
+	}
 	return &r
 }
 
@@ -89,7 +101,14 @@ type Result struct {
 	Findings []preflight.Finding
 	Deletes  []string // pure deletes
 	Replaces []string
-	Changes  int
+	// RoutineReplaces are the entries of Replaces that are routine: a
+	// managed resource of a type in the rules' routine_replace_types, that
+	// the plan deletes and creates, that is not stateful or listed in
+	// protected_resources, and that no exposure, unknown-watched or
+	// code-execution finding names. A plan whose only deletes and replaces
+	// are these is not a destroy (policy.SavedPlanClass).
+	RoutineReplaces []string
+	Changes         int
 }
 
 // Evaluate parses and checks the plan.
@@ -130,6 +149,7 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 			Message: fmt.Sprintf("the plan invokes %d action(s), which run provider operations applygate cannot check", len(actions))})
 	}
 	var stateful, protection, exposure, stateInfra, outOfScope, unprotectedCreate, reducedCreate, protectedAddr, unknownAttrs []string
+	var routine []string // candidates for RoutineReplaces, before the code-execution check
 	var crit = func(list *[]string, s string) { *list = append(*list, s) }
 
 	for _, rc := range p.ResourceChanges {
@@ -165,7 +185,7 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 			}
 		}
 		for _, pr := range rules.Protection {
-			if !contains(pr.Types, rc.Type) {
+			if !slices.Contains(pr.Types, rc.Type) {
 				continue
 			}
 			bv, bok := lookup(before, pr.Attr)
@@ -188,7 +208,7 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 				crit(&protection, rc.Address+": "+pr.What+" (the setting is removed, so the provider's default applies)")
 			}
 		}
-		// F11 (narrowed): a database created with no safety net at all —
+		// A database created with no safety net at all —
 		// deletion protection off AND the final snapshot skipped — is High, so
 		// a protected tier asks. A create with only one safeguard off (e.g.
 		// protection off but a final snapshot kept) is allowed and recorded as
@@ -207,7 +227,8 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 			}
 		}
 		if !del {
-			unknownAttrs = append(unknownAttrs, unknownWatched(rc, rules)...)
+			unknown := unknownWatched(rc, rules)
+			unknownAttrs = append(unknownAttrs, unknown...)
 			ev := exposed(rc, after, rules)
 			if acts.Update() {
 				// An update reports only the exposure it introduces; what
@@ -215,6 +236,10 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 				ev = without(ev, exposed(rc, before, rules))
 			}
 			exposure = append(exposure, ev...)
+			if repl && len(ev) == 0 && len(unknown) == 0 && rc.Mode == tfjson.ManagedResourceMode && rules.routine[rc.Type] &&
+				!rules.stateful[rc.Type] && deleteAndCreate(rc.Change.Actions) && !(len(in.Protected) > 0 && isProtected(rc.Address, in.Protected)) {
+				routine = append(routine, rc.Address)
+			}
 		}
 		if in.Backend != nil && in.Backend.Type == "s3" {
 			bucket, table := in.Backend.Config["bucket"], in.Backend.Config["dynamodb_table"]
@@ -245,7 +270,15 @@ func Evaluate(in Input, rules *Rules) (*Result, error) {
 	add("stateful-create-note", preflight.Info, "database created with reduced protection (allowed; recorded)", reducedCreate)
 	add("stateful-destroyed", preflight.Critical, "plan destroys or replaces stateful resources", stateful)
 	add("protected-resource", preflight.Critical, "plan destroys or replaces resources listed in protected_resources", protectedAddr)
-	add("code-execution", preflight.High, "applying this plan runs code outside Terraform's own providers (provisioners or external data sources)", codeExecution(&p))
+	runsCode := codeExecution(&p)
+	add("code-execution", preflight.High, "applying this plan runs code outside Terraform's own providers (provisioners or external data sources)", runsCode)
+	for _, addr := range routine {
+		// A replace runs the new instance's provisioners and the old one's
+		// destroy-time ones: that is not routine.
+		if !slices.ContainsFunc(runsCode, func(ev string) bool { return strings.HasPrefix(ev, addr+": ") }) {
+			res.RoutineReplaces = append(res.RoutineReplaces, addr)
+		}
+	}
 	add("protection-removed", preflight.Critical, "plan removes data protection", protection)
 	add("exposure", preflight.High, "plan exposes resources", exposure)
 	add("unknown-watched", preflight.High, "values the exposure and protection rules check are known only at apply time, so the plan cannot show they are safe", unknownAttrs)
@@ -403,7 +436,7 @@ var exposureAttrs = map[string][]string{
 	"aws_secretsmanager_secret_policy":    {"policy"},
 	"aws_lambda_permission":               {"principal"},
 	"aws_lambda_function_url":             {"authorization_type"},
-	// 4H14: every type exposed reads.
+	// Every type exposed reads.
 	"aws_default_security_group":      {"ingress"},
 	"aws_db_instance":                 {"publicly_accessible"},
 	"aws_rds_cluster_instance":        {"publicly_accessible"},
@@ -414,7 +447,7 @@ var exposureAttrs = map[string][]string{
 	"aws_iam_user_policy_attachment":  {"policy_arn"},
 	"aws_iam_group_policy_attachment": {"policy_arn"},
 	"aws_iam_policy_attachment":       {"policy_arn"},
-	// Round 7: the policy attribute of the OpenSearch and Elasticsearch
+	// The policy attribute of the OpenSearch and Elasticsearch
 	// domains is access_policies; attachment sets, SSO and sharing.
 	"aws_opensearch_domain":                      {"access_policies"},
 	"aws_elasticsearch_domain":                   {"access_policies"},
@@ -452,7 +485,7 @@ func unknownWatched(rc *tfjson.ResourceChange, rules *Rules) []string {
 	// Protection can only be removed from a resource that exists.
 	if acts := normalActions(rc.Change.Actions); acts.Update() || acts.Replace() {
 		for _, pr := range rules.Protection {
-			if contains(pr.Types, rc.Type) && (pr.When == "change" || pr.When == "both") {
+			if slices.Contains(pr.Types, rc.Type) && (pr.When == "change" || pr.When == "both") {
 				attrs = append(attrs, pr.Attr)
 			}
 		}
@@ -487,6 +520,18 @@ func anyTrue(v any) bool {
 		}
 	}
 	return false
+}
+
+// deleteAndCreate reports whether the plan's own action list is a replace
+// as show -json writes one: exactly a delete and a create, in either order.
+// normalActions also reads an action applygate does not know, beside a
+// create, as a replace; that one is not known to be a replace at all.
+func deleteAndCreate(in tfjson.Actions) bool {
+	if len(in) != 2 {
+		return false
+	}
+	a, b := tfjson.Action(strings.ToLower(string(in[0]))), tfjson.Action(strings.ToLower(string(in[1])))
+	return a == tfjson.ActionDelete && b == tfjson.ActionCreate || a == tfjson.ActionCreate && b == tfjson.ActionDelete
 }
 
 // normalActions reads an action list as Terraform means it, whatever its
@@ -1037,15 +1082,6 @@ func without(list, drop []string) []string {
 		}
 	}
 	return out
-}
-
-func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func firstString(after, before map[string]any, keys ...string) string {

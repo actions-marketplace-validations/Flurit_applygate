@@ -1,11 +1,17 @@
 # Configuration
 
+## Which files are read
+
 applygate reads these config files. Unknown keys are rejected.
 - **The user config,** `~/.config/applygate/config.yaml` (optional; `applygate doctor` prints its path).
 - **The system config,** `/etc/applygate/config.yaml`, only under a managed install ([managed.md](managed.md)). It is read first and may set anything, and the user config may then only tighten, like a repository config. It is used only when root owns it and nobody else can write it.
 - **Every trusted `.applygate.yaml`** from the outermost directory above the command down to the command's own directory.
 
+## Trust
+
 **A repository config must be trusted.** applygate reads a `.applygate.yaml` only when a person approved its exact content with `applygate trust` (`/usr/bin/sudo /usr/local/libexec/applygate/applygate trust` under a managed install). It shows each untrusted config and asks you to type `trust`. A config that is new or changed since is not read, and every directory is judged as protected; `doctor` lists them. Its directory is still the repository root for self-protection: removing, moving, extracting or copying into the repository's `.claude` directory (or any other directory holding a guard file there) is tampering, as it is under a trusted config. A repository with no config is guarded at its git root, and a session started in a subdirectory at that directory too, and `git checkout`, `pull` and the like ask in any of these repositories rather than block ([limits.md](limits.md)). `trust` trusts the exact bytes it showed you, and refuses if the file changed before you confirmed. Only a regular file can be trusted: a `.applygate.yaml` that is a symlink, or that cannot be read, is not read either. In CI, where there is no trust store, `plan-check --trust-config` (the Action's `trust-config: true`) reads the checked-out config. `applygate init` trusts the config it writes. Trust is stored by path and SHA-256 in `~/.config/applygate/trusted.json`, or `/etc/applygate/trusted.json` under a managed install.
+
+## What each file may set
 
 **Only the user config can loosen protection.** A repository config is written to the repository, which an agent or a cloned project may control, so it can only add protection.
 - **The outermost repository config** is the repository's. It defines the environments, and may tighten any other setting.
@@ -23,6 +29,8 @@ applygate reads these config files. Unknown keys are rejected.
 
   In a repository config they are ignored, and `doctor` says which. Under a managed install the same holds for the user config, and its `judge` and `plan_gate.engines` are ignored whatever they say.
 - **Path patterns.** A repository config's paths, including `**` patterns, are relative to its own directory. The user config's `**` patterns match anywhere.
+
+## All keys
 
 ```yaml
 version: 1
@@ -83,6 +91,8 @@ wrappers:                       # extra programs that run a command given in the
 protected_resources: []         # address globs whose destroy/replace is critical, e.g. ["aws_instance.bastion", "module.data.*"]
 ```
 
+## Notes on keys
+
 **Defaults.** Because the most protected matching environment wins, an environment that matches everything (`paths: ["**"]`) overrides every less protected one: `examples/**` → disposable plus `**` → standard makes the examples standard too. For a default, set `strict: false` and `default_tier` instead.
 
 `kube_contexts`, `gcp_projects` and `azure_subscriptions` match what a `kubectl` or `helm`, `gcloud` or `az` command targets, also when it comes through an MCP tool ([mcp.md](mcp.md)). The value is the one on the command line (`--context`, `--cluster` or `--server` for kubectl, `--kube-context` or `--kube-apiserver` for helm, `--project`, `--subscription`), else what the CLI's own local configuration selects: the current context of the kubeconfig named by `--kubeconfig`, `KUBECONFIG` or `~/.kube/config`; the configuration named by gcloud's `--configuration`; `CLOUDSDK_CORE_PROJECT` or that (else the active) gcloud configuration's `core/project`; the default subscription in `~/.azure/azureProfile.json` (name or id). These are local file reads, never a network call. As with every signal, the most protected match wins, so a `kubectl delete` run from a disposable directory against a protected cluster is judged protected, and the name hints apply too (`prod-eks` looks like production).
@@ -91,7 +101,7 @@ protected_resources: []         # address globs whose destroy/replace is critica
 
 `wrappers` lists a team's own runners that execute the command in their arguments, so applygate analyzes that command instead of the runner. The command starts after `--` when there is one, otherwise after `skip` positional arguments; `profile_arg` names the positional that is an AWS profile or role, which counts as a tier signal like `AWS_PROFILE`. Built-in runners (`aws-vault`, `gds aws`, `direnv`, `mise`, `nix-shell`, …) need no entry, and an unknown runner around `terraform`, `tofu` or `terragrunt` is caught by the backstop anyway; list a runner here when it wraps other tools such as `aws` or `kubectl`, or to get its profile argument used for the tier. Entries from the user and repository configs are combined.
 
-`protected_resources` extends the plan gate's built-in stateful-type list with addresses that matter in *this* repository whatever their type: a bastion host, a module holding data, a specific bucket. Globs match the full Terraform address (`module.x.*`, `aws_instance.*`). A destroy or replace of a matching resource in a saved plan is a critical finding, so protected tiers block and standard tiers ask.
+`protected_resources` extends the plan gate's built-in stateful-type list with addresses that matter in *this* repository whatever their type: a bastion host, a module holding data, a specific bucket. Globs match the full Terraform address (`module.x.*`, `aws_instance.*`). A destroy or replace of a matching resource in a saved plan is a critical finding, so protected tiers block and standard tiers ask. This is also how to have a routine replace asked about again in a standard tier ([policy.md](policy.md), step 6): `["aws_launch_template.*"]` matches the launch templates of the root module, and a leading `*` (`"*aws_launch_template.*"`) those inside modules too.
 
 `preflight.live_state` makes the only other network call besides `live_identity`. When local state files sit next to a remote backend (the `stale-state` finding), applygate runs `<engine> state pull` (read-only) and compares each local file's lineage and serial with the remote state. A local file from another lineage, behind the remote serial, or ahead of it becomes a high `state-lineage` finding with the serials in the evidence. Like `live_identity`, only the user config can turn it on; a repository config cannot.
 

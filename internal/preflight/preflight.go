@@ -22,7 +22,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -99,10 +98,6 @@ func Workspace(dir string, env map[string]string) string {
 	}
 	return "default"
 }
-
-// InitBackend reads the backend recorded by the last init in
-// .terraform/terraform.tfstate.
-func InitBackend(dir string) *Backend { return InitBackendEnv(dir, nil) }
 
 // DataDir is the directory Terraform keeps its working data in: TF_DATA_DIR
 // (relative to dir) when set, else .terraform.
@@ -377,18 +372,6 @@ func literal(e hcl.Expression) (string, bool) {
 	return v.AsString(), true
 }
 
-func clip(s string) string {
-	if len(s) > 60 {
-		return s[:60] + "…"
-	}
-	return s
-}
-
-var (
-	providerAWS = regexp.MustCompile(`(?s)\bprovider\s+"?aws"?\s*\{`)
-	roleARN     = regexp.MustCompile(`(?m)^\s*role_arn\s*=\s*"([^"]*)"`)
-)
-
 // Vars are the input variable values a command gives Terraform: -var
 // NAME=value pairs, -var-file files (absolute) and the environment
 // (TF_VAR_NAME). Unknown says why some cannot be read.
@@ -404,7 +387,7 @@ type Vars struct {
 // the configuration may change. A value that is var.NAME gives every value
 // the variable may have (-var, -var-file, TF_VAR_NAME, terraform.tfvars,
 // *.auto.tfvars, its default). Any other computed value, or a variable with
-// no value found, is unknown, and unknown says why (4H10).
+// no value found, is unknown, and unknown says why.
 func ProviderAWS(dir string, vars Vars) (profiles, roles []string, unknown string) {
 	files := parsedFiles(dir)
 	var vv *varValues
@@ -1153,7 +1136,7 @@ func BackendFromConfig(dir string, declared, recorded *Backend, configs []string
 	switch {
 	case declared != nil:
 		// A computed value in the block stays unknown: a file or pair
-		// may not set it (4H9).
+		// may not set it.
 		be.Type, be.Unreadable = declared.Type, declared.Unreadable
 		for k, v := range declared.Config {
 			be.Config[k] = v
